@@ -1,0 +1,81 @@
+{
+  "projectType": "sdk-library",
+  "projectName": "Carpet",
+  "projectDescription": "A Java library for serializing and deserializing Parquet files using Java 17 records with a simple, reflection-based API.",
+  "theme": "mint",
+  "primaryColor": "#94cb04",
+  "lightColor": "#545454",
+  "darkColor": null,
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "getting-started/installation",
+              "getting-started/basic-usage"
+            ]
+          },
+          {
+            "group": "Core API",
+            "pages": [
+              "getting-started/carpetwriter-api",
+              "getting-started/carpetreader-api"
+            ]
+          },
+          {
+            "group": "Advanced Usage",
+            "pages": [
+              "advanced/data-types",
+              "advanced/java-type-annotations",
+              "advanced/column-mapping",
+              "advanced/projections",
+              "advanced/nullability",
+              "advanced/schema-mismatch",
+              "advanced/write-model",
+              "advanced/configuration",
+              "advanced/input-output-files",
+              "advanced/low-level-parquet"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Serialize Java records to Parquet files using reflection",
+    "Deserialize Parquet files back to Java records",
+    "Support for nested records, Collections, and Maps",
+    "Column name aliasing and snake_case conversion strategies",
+    "Partial projection reads for I/O efficiency",
+    "Write Model API for non-record classes and custom field mapping",
+    "Support for temporal types, BigDecimal, UUID, Binary, and geospatial data",
+    "Java type annotations for JSON, BSON, Enum, and Decimal precision control",
+    "Low-level ParquetWriter/ParquetReader access for third-party library integration",
+    "Minimal Hadoop transitive dependencies"
+  ],
+  "publicApiSurface": [
+    "CarpetWriter<T>",
+    "CarpetReader<T>",
+    "CarpetWriter.Builder<T>",
+    "CarpetParquetWriter",
+    "CarpetParquetReader",
+    "WriteModelFactory.writeRecordModel()",
+    "@Alias annotation",
+    "@NotNull annotation",
+    "@PrecisionScale annotation",
+    "@Rounding annotation",
+    "@ParquetString annotation",
+    "@ParquetEnum annotation",
+    "@ParquetJson annotation",
+    "@ParquetBson annotation",
+    "@ParquetGeometry annotation",
+    "@ParquetGeography annotation",
+    "ColumnNamingStrategy enum",
+    "FieldMatchingStrategy enum",
+    "TimeUnit enum"
+  ]
+}
