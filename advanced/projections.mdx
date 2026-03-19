@@ -1,0 +1,58 @@
+---
+title: "Projections"
+description: "Read a subset of Parquet columns by defining a record with only the fields you need, reducing I/O and CPU consumption."
+---
+
+One of Parquet's core advantages is columnar storage: each column is stored independently, so you can read only the columns you need and skip the rest entirely. Carpet exposes this capability through **projections** — you simply define a record that contains a subset of the file's fields, and Parquet skips reading the omitted columns from disk.
+
+## How projections work
+
+When Carpet opens a file, it compares the fields of your target record against the file's schema. Columns that exist in the file but are absent from your record are ignored — no bytes for those columns are read or decoded.
+
+<Tip>
+Projections are one of the most effective ways to reduce I/O when working with wide Parquet files. If you only need 3 of 50 columns, reading a projected record can be 10–15× faster than reading the full schema.
+</Tip>
+
+## Example
+
+Suppose a file has this schema:
+
+```
+message Invoice {
+  optional binary id (STRING);
+  required double amount;
+  required double taxes;
+  optional group lines (LIST) {
+    repeated group list {
+      optional group element {
+        optional binary sku (STRING);
+        required int32 quantity;
+        required double price;
+      }
+    }
+  }
+}
+```
+
+You only need the `id`, `sku`, and `quantity` fields. Define records that match just those fields:
+
+```java InvoiceRead.java
+record LineRead(String sku, int quantity) { }
+
+record InvoiceRead(String id, List<LineRead> lines) { }
+
+List<InvoiceRead> data = new CarpetReader<>(new File("my_file.parquet"), InvoiceRead.class).toList();
+```
+
+Parquet reads and decodes only the pages containing `id`, `sku`, and `quantity`. The `amount`, `taxes`, and `price` columns are never read from disk.
+
+## Projections vs. schema mismatch
+
+Carpet distinguishes between two different situations:
+
+| Situation | Behavior |
+|---|---|
+| A column exists in the file but not in your record | Normal projection — column is silently skipped |
+| A field exists in your record but not in the file | Schema mismatch — throws an exception by default |
+
+If you need to handle missing columns gracefully (for example, when reading older file versions), see [Schema Mismatch](/advanced/schema-mismatch).

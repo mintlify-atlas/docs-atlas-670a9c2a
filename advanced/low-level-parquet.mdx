@@ -1,0 +1,84 @@
+---
+title: "Low-Level Parquet API"
+description: "Use CarpetParquetWriter and CarpetParquetReader to create native ParquetWriter<T> and ParquetReader<T> instances for integration with other Parquet-aware libraries."
+---
+
+Carpet is built on top of [parquet-java](https://github.com/apache/parquet-java). Internally, `CarpetWriter` and `CarpetReader` wrap native `ParquetWriter` and `ParquetReader` instances. When you need to pass a `ParquetWriter<T>` or `ParquetReader<T>` to another library that works at the Parquet level, you can create them directly using `CarpetParquetWriter` and `CarpetParquetReader`.
+
+<Note>
+The examples below use `HadoopOutputFile` / `HadoopInputFile`, which require a Hadoop dependency on the classpath. For local file access without Hadoop, use `LocalOutputFile` / `LocalInputFile` from parquet-java, or Carpet's own `FileSystemOutputFile` / `FileSystemInputFile`. See [Input and Output Files](/advanced/input-output-files).
+</Note>
+
+## Writing with `CarpetParquetWriter`
+
+`CarpetParquetWriter.builder()` returns a standard `ParquetWriter.Builder` subclass. All `ParquetWriter` configuration methods are available:
+
+```java LowLevelWriter.java
+List<MyRecord> data = calculateDataToPersist();
+
+Path path = new org.apache.hadoop.fs.Path("my_file.parquet");
+OutputFile outputFile = HadoopOutputFile.fromPath(path, new Configuration());
+
+try (ParquetWriter<MyRecord> writer = CarpetParquetWriter.builder(outputFile, MyRecord.class)
+        .withWriteMode(Mode.OVERWRITE)
+        .withCompressionCodec(CompressionCodecName.GZIP)
+        .withPageRowCountLimit(100_000)
+        .withBloomFilterEnabled("name", true)
+        .build()) {
+
+    otherLibraryIntegrationWrite(writer, data);
+}
+```
+
+The resulting `ParquetWriter<MyRecord>` can be passed to any library that accepts a standard `ParquetWriter<T>`.
+
+## Reading with `CarpetParquetReader`
+
+`CarpetParquetReader.builder()` returns a standard `ParquetReader.Builder` subclass:
+
+```java LowLevelReader.java
+Path path = new org.apache.hadoop.fs.Path("my_file.parquet");
+InputFile inputFile = new HadoopInputFile(path, new Configuration());
+
+try (ParquetReader<MyRecord> reader = CarpetParquetReader.builder(inputFile, MyRecord.class).build()) {
+    var data = otherLibraryIntegrationRead(reader);
+    // process data
+}
+```
+
+## Use cases
+
+<CardGroup cols={2}>
+  <Card title="Library integration" icon="plug">
+    Pass `ParquetWriter<T>` or `ParquetReader<T>` to frameworks that work at the Parquet level (Apache Spark connectors, Flink, etc.).
+  </Card>
+  <Card title="Full Parquet configuration" icon="sliders">
+    Access every `ParquetWriter` / `ParquetReader` builder option, including filter predicates, metadata, and codec configuration not exposed by `CarpetWriter`.
+  </Card>
+</CardGroup>
+
+## Carpet-specific configuration
+
+Both builders accept Carpet-specific settings via the same methods as `CarpetWriter.Builder` and `CarpetReader`:
+
+```java CarpetConfig.java
+// Writer with Carpet config
+try (ParquetWriter<MyRecord> writer = CarpetParquetWriter.builder(outputFile, MyRecord.class)
+        .withCompressionCodec(CompressionCodecName.SNAPPY)
+        .withDefaultDecimal(20, 4)
+        .withDefaultTimeUnit(TimeUnit.MICROS)
+        .build()) {
+    writer.write(record);
+}
+
+// Reader with Carpet config
+try (ParquetReader<MyRecord> reader = CarpetParquetReader.builder(inputFile, MyRecord.class)
+        .withFailOnNullForPrimitives(true)
+        .withFieldMatchingStrategy(FieldMatchingStrategy.BEST_EFFORT)
+        .build()) {
+    MyRecord record;
+    while ((record = reader.read()) != null) {
+        process(record);
+    }
+}
+```

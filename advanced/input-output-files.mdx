@@ -1,0 +1,108 @@
+---
+title: "Input and Output Files"
+description: "Use FileSystemOutputFile, FileSystemInputFile, or the newer LocalOutputFile and LocalInputFile to read and write Parquet files without a Hadoop dependency."
+---
+
+The `parquet-java` library defines `OutputFile` and `InputFile` interfaces as its primary abstraction for file I/O. These interfaces decouple Parquet from any specific storage backend.
+
+## Background
+
+Historically, parquet-java only shipped `HadoopOutputFile` and `HadoopInputFile`, which required a Hadoop dependency even for simple local file access. To work around this, Carpet has always included its own `FileSystemOutputFile` and `FileSystemInputFile` implementations.
+
+More recently, parquet-java added `LocalOutputFile` and `LocalInputFile` as first-party alternatives. You can use either implementation — they are interchangeable.
+
+## Writing to a local file
+
+<Tabs>
+  <Tab title="OutputStream">
+
+The simplest approach for local files: pass a `FileOutputStream` directly to `CarpetWriter`. Carpet wraps it internally:
+
+```java WriteOutputStream.java
+File file = new File("output.parquet");
+try (var writer = new CarpetWriter<>(new FileOutputStream(file), MyRecord.class)) {
+    writer.write(data);
+}
+```
+
+  </Tab>
+  <Tab title="FileSystemOutputFile (Carpet)">
+
+Use Carpet's `FileSystemOutputFile` when you need an `OutputFile` reference, for example when integrating with APIs that expect it:
+
+```java WriteFileSystem.java
+import com.jerolba.carpet.fileystem.FileSystemOutputFile;
+
+OutputFile outputFile = new FileSystemOutputFile(new File("output.parquet"));
+try (var writer = new CarpetWriter<>(outputFile, MyRecord.class)) {
+    writer.write(data);
+}
+```
+
+  </Tab>
+  <Tab title="LocalOutputFile (parquet-java)">
+
+Use parquet-java's own `LocalOutputFile` if you prefer to avoid Carpet-specific classes:
+
+```java WriteLocal.java
+import org.apache.parquet.io.LocalOutputFile;
+
+OutputFile outputFile = new LocalOutputFile(Path.of("output.parquet"));
+try (var writer = new CarpetWriter<>(outputFile, MyRecord.class)) {
+    writer.write(data);
+}
+```
+
+  </Tab>
+</Tabs>
+
+## Reading from a local file
+
+<Tabs>
+  <Tab title="File">
+
+`CarpetReader` accepts a `java.io.File` directly:
+
+```java ReadFile.java
+List<MyRecord> data = new CarpetReader<>(new File("input.parquet"), MyRecord.class).toList();
+```
+
+  </Tab>
+  <Tab title="FileSystemInputFile (Carpet)">
+
+Use Carpet's `FileSystemInputFile` when an `InputFile` reference is required:
+
+```java ReadFileSystem.java
+import com.jerolba.carpet.fileystem.FileSystemInputFile;
+
+InputFile inputFile = new FileSystemInputFile(new File("input.parquet"));
+List<MyRecord> data = new CarpetReader<>(inputFile, MyRecord.class).toList();
+```
+
+  </Tab>
+  <Tab title="LocalInputFile (parquet-java)">
+
+Use parquet-java's `LocalInputFile` as the first-party alternative:
+
+```java ReadLocal.java
+import org.apache.parquet.io.LocalInputFile;
+
+InputFile inputFile = new LocalInputFile(Path.of("input.parquet"));
+List<MyRecord> data = new CarpetReader<>(inputFile, MyRecord.class).toList();
+```
+
+  </Tab>
+</Tabs>
+
+## `OutputStream` vs. `OutputFile`
+
+| | `OutputStream` | `OutputFile` |
+|---|---|---|
+| Use case | Simple local file writing | APIs that require an `OutputFile`, or low-level Parquet configuration |
+| Seekable writes | No | Yes (required for certain Parquet features) |
+| Hadoop dependency | No | No (with `LocalOutputFile` or `FileSystemOutputFile`) |
+| `CarpetWriter` support | Yes (wraps it internally) | Yes |
+
+<Note>
+For most local file use cases, passing a `File` or `FileOutputStream` to `CarpetWriter` or `CarpetReader` is the simplest option. Use `OutputFile`/`InputFile` implementations when you need to integrate with the lower-level Parquet API, such as `CarpetParquetWriter.builder()` or `CarpetParquetReader.builder()`.
+</Note>

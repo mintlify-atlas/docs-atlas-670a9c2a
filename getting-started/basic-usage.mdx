@@ -1,0 +1,78 @@
+---
+title: "Basic usage"
+description: "Write and read Parquet files using Java records and the Carpet API."
+---
+
+## Define a record
+
+Carpet uses standard Java records as its data model. You don't need to generate classes or inherit from any Carpet base class — define your structure as a plain record:
+
+```java MyRecord.java
+record MyRecord(long id, String name, int size, double value, double percentile) { }
+```
+
+Carpet uses reflection to derive the Parquet schema directly from the record's component types at runtime.
+
+## Write to Parquet
+
+Wrap a `CarpetWriter` in a try-with-resources block. It accepts either an `OutputStream` or an `OutputFile` as its target.
+
+```java WriteExample.java
+List<MyRecord> data = calculateDataToPersist();
+
+try (OutputStream outputStream = new FileOutputStream("my_file.parquet")) {
+    try (CarpetWriter<MyRecord> writer = new CarpetWriter<>(outputStream, MyRecord.class)) {
+        writer.write(data);
+    }
+}
+```
+
+Carpet infers the Parquet schema from the record class and writes all fields into the file. For the record above, the generated schema looks like this:
+
+```
+message MyRecord {
+  required int64 id;
+  optional binary name (STRING);
+  required int32 size;
+  required double value;
+  required double percentile;
+}
+```
+
+<Tip>
+  Use `OutputFile` instead of `OutputStream` when you need seekable write access, such as when working with the Parquet low-level API or non-local storage backends.
+</Tip>
+
+## Read from Parquet
+
+Provide a `File` and the record class to `CarpetReader`, then call `.toList()` to load all rows:
+
+```java ReadExample.java
+List<MyRecord> data = new CarpetReader<>(new File("my_file.parquet"), MyRecord.class).toList();
+```
+
+Carpet matches the Parquet column names to the record's component names and populates each field automatically.
+
+## Read as a map when schema is unknown
+
+If the file schema is not known ahead of time, or when a generic representation is sufficient, you can deserialize rows into `Map<String, Object>`:
+
+```java ReadAsMap.java
+List<Map> data = new CarpetReader<>(new File("my_file.parquet"), Map.class).toList();
+```
+
+Each map entry uses the Parquet column name as the key and the decoded Java value as the value.
+
+## Next steps
+
+<CardGroup cols={3}>
+  <Card title="CarpetWriter API" icon="pen-to-square" href="/getting-started/carpetwriter-api">
+    Explore write options: compression, page size, row group configuration, and streaming writes.
+  </Card>
+  <Card title="CarpetReader API" icon="book-open" href="/getting-started/carpetreader-api">
+    Learn filtering, projection, schema mismatch handling, and iterator-based reading.
+  </Card>
+  <Card title="Data types" icon="database" href="/advanced/data-types">
+    See all supported primitive types, nested records, collections, and maps.
+  </Card>
+</CardGroup>

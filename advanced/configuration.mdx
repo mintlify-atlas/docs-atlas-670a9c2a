@@ -1,0 +1,142 @@
+---
+title: "Configuration"
+description: "Configure CarpetWriter and CarpetReader for compression, page sizes, BigDecimal precision, time units, and schema mismatch handling."
+---
+
+Carpet exposes two levels of configuration: **Parquet-level** settings (compression, page size, Bloom filters, etc.) and **Carpet-level** settings (type-specific behavior for `BigDecimal`, time units, and schema mismatch handling).
+
+<Tabs>
+  <Tab title="Writer configuration">
+
+### Parquet configuration
+
+The default `CarpetWriter` constructors use sensible Parquet defaults. Use `CarpetWriter.Builder` to customize any underlying `ParquetWriter` setting:
+
+```java WriterConfig.java
+List<MyRecord> data = calculateDataToPersist();
+
+try (CarpetWriter<MyRecord> writer = new CarpetWriter.Builder<>(outputFile, MyRecord.class)
+    .withWriteMode(Mode.OVERWRITE)
+    .withCompressionCodec(CompressionCodecName.GZIP)
+    .withPageRowCountLimit(100_000)
+    .withBloomFilterEnabled("name", true)
+    .build()) {
+    writer.write(data);
+}
+```
+
+All standard `ParquetWriter` builder methods are available through `CarpetWriter.Builder`.
+
+### BigDecimal precision and scale
+
+The Parquet `DECIMAL` logical type requires an explicit precision and scale. Configure them globally on the writer:
+
+```java BigDecimalConfig.java
+record MyRecord(String id, String name, BigDecimal price) { }
+
+try (var writer = new CarpetWriter.Builder<>(outputFile, MyRecord.class)
+        .withDefaultDecimal(20, 4)
+        .build()) {
+    writer.write(data);
+}
+```
+
+<Warning>
+If Carpet encounters a `BigDecimal` field and no precision/scale has been configured (via `withDefaultDecimal` or a per-field `@PrecisionScale` annotation), it throws an exception. There is no default.
+</Warning>
+
+If a `BigDecimal` value has more decimal places than the configured scale, Carpet throws an exception by default rather than silently truncating. To allow automatic rescaling, specify a `RoundingMode`:
+
+```java BigDecimalRounding.java
+try (var writer = new CarpetWriter.Builder<>(outputFile, MyRecord.class)
+        .withDefaultDecimal(20, 3)
+        .withBigDecimalScaleAdjustment(RoundingMode.HALF_UP)
+        .build()) {
+    writer.write(new MyRecord("1", "item1", new BigDecimal("123.45678")));
+}
+```
+
+Available `RoundingMode` values follow the standard `java.math.RoundingMode` enum: `UP`, `DOWN`, `CEILING`, `FLOOR`, `HALF_UP`, `HALF_DOWN`, `HALF_EVEN`, `UNNECESSARY`.
+
+### Time unit
+
+Parquet `TIME` and `TIMESTAMP` types support three time unit resolutions. Carpet defaults to `MILLIS`:
+
+```java TimeUnitConfig.java
+record MyRecord(long itemId, int count, LocalTime saleTime) { }
+
+try (var writer = new CarpetWriter.Builder<>(outputStream, MyRecord.class)
+        .withDefaultTimeUnit(TimeUnit.MICROS)
+        .build()) {
+    writer.write(data);
+}
+```
+
+| Time unit | Parquet type for `LocalTime` | Parquet type for `LocalDateTime` / `Instant` |
+|---|---|---|
+| `MILLIS` | `int32 TIME(MILLIS)` | `int64 TIMESTAMP(MILLIS)` |
+| `MICROS` | `int32 TIME(MICROS)` | `int64 TIMESTAMP(MICROS)` |
+| `NANOS` | `int64 TIME(NANOS)` | `int64 TIMESTAMP(NANOS)` |
+
+This setting affects only the files you write. Reading automatically adapts to whatever unit is stored in the file.
+
+### Write Model
+
+Attach a programmatic Write Model to override automatic field mapping:
+
+```java WriteModelConfig.java
+var writeModel = writeRecordModel(MyRecord.class)
+    .withField("renamed_field", STRING, MyRecord::someField);
+
+try (var writer = new CarpetWriter.Builder<>(outputStream, MyRecord.class)
+        .withWriteRecordModel(writeModel)
+        .build()) {
+    writer.write(data);
+}
+```
+
+See [Write Model](/advanced/write-model) for full documentation.
+
+  </Tab>
+  <Tab title="Reader configuration">
+
+### Parquet configuration
+
+`CarpetReader` does not provide a full builder. It exposes Carpet-specific configuration methods directly on the reader instance. If you need to configure low-level Parquet reader settings (input split, filter predicates, etc.), use `CarpetParquetReader.Builder` instead:
+
+```java LowLevelReader.java
+try (ParquetReader<MyRecord> reader = CarpetParquetReader.builder(inputFile, MyRecord.class)
+        .build()) {
+    // use reader
+}
+```
+
+See [Low-Level Parquet](/advanced/low-level-parquet) for full details.
+
+### Schema mismatch handling
+
+`CarpetReader` provides four configuration options that control how schema mismatches between the file and your record are handled:
+
+```java ReaderConfig.java
+var reader = new CarpetReader<>(file, MyRecord.class)
+    // Throw if an optional column value is null and the field is a primitive
+    .withFailOnNullForPrimitives(true)
+    // Allow records with fields that have no corresponding column in the file
+    .withFailOnMissingColumn(false)
+    // Throw if a numeric column is narrowed (e.g., int64 → int32)
+    .withFailNarrowingPrimitiveConversion(true)
+    // Match columns to fields using snake_case conversion
+    .withFieldMatchingStrategy(FieldMatchingStrategy.BEST_EFFORT);
+```
+
+| Option | Default | Description |
+|---|---|---|
+| `withFailOnNullForPrimitives` | `false` | If `true`, throws when null is assigned to a primitive field |
+| `withFailOnMissingColumn` | `true` | If `false`, missing columns are filled with defaults instead of throwing |
+| `withFailNarrowingPrimitiveConversion` | `false` | If `true`, throws when a numeric narrowing conversion would occur |
+| `withFieldMatchingStrategy` | `FIELD_NAME` | Controls how column names are matched to field names |
+
+Full examples for each option are in [Schema Mismatch](/advanced/schema-mismatch).
+
+  </Tab>
+</Tabs>

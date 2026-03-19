@@ -1,97 +1,99 @@
 ---
-title: "Introduction"
-description: "Welcome to the new home for your documentation"
+title: "Carpet — Parquet for Java Records"
+description: "A fast, simple Java library for serializing and deserializing Apache Parquet files using Java 17 records."
 ---
 
-## Setting up
+<img
+  className="block"
+  src="/logo.png"
+  alt="Carpet Logo"
+  style={{ height: "80px", marginBottom: "1.5rem" }}
+/>
 
-Get your documentation site up and running in minutes.
+## The simplest way to work with Parquet in Java
 
-<Card
-  title="Start here"
-  icon="rocket"
-  href="/quickstart"
-  horizontal
->
-  Follow our three step quickstart guide.
-</Card>
+Carpet maps Java records directly to Parquet files using reflection — no code generation, no schema definitions, no inheritance required. Define a record, write it, read it back.
 
-## Make it yours
+```java QuickStart.java
+record Sale(long id, String product, int quantity, double amount) {}
 
-Design a docs site that looks great and empowers your users.
+// Write
+try (var out = new FileOutputStream("sales.parquet")) {
+    try (var writer = new CarpetWriter<>(out, Sale.class)) {
+        writer.write(List.of(
+            new Sale(1, "Widget", 10, 299.90),
+            new Sale(2, "Gadget", 5, 499.50)
+        ));
+    }
+}
 
-<Columns cols={2}>
-  <Card
-    title="Edit locally"
-    icon="pen-to-square"
-    href="/development"
-  >
-    Edit your docs locally and preview them in real time.
+// Read
+List<Sale> sales = new CarpetReader<>(new File("sales.parquet"), Sale.class).toList();
+```
+
+<CardGroup cols={2}>
+  <Card title="Installation" icon="download" href="/getting-started/installation">
+    Add Carpet to your Maven or Gradle project in seconds.
   </Card>
-  <Card
-    title="Customize your site"
-    icon="palette"
-    href="/essentials/settings"
-  >
-    Customize the design and colors of your site to match your brand.
+  <Card title="Basic Usage" icon="play" href="/getting-started/basic-usage">
+    Write and read your first Parquet file with Java records.
   </Card>
-    <Card
-    title="Set up navigation"
-    icon="map"
-    href="/essentials/navigation"
-  >
-    Organize your docs to help users find what they need and succeed with your product.
+  <Card title="CarpetWriter API" icon="pencil" href="/getting-started/carpetwriter-api">
+    Write single records, collections, and streams to Parquet.
   </Card>
-  <Card
-    title="API documentation"
-    icon="terminal"
-    href="/api-reference/introduction"
-  >
-    Auto-generate API documentation from OpenAPI specifications.
+  <Card title="CarpetReader API" icon="book-open" href="/getting-started/carpetreader-api">
+    Stream, iterate, or collect Parquet data into Java records.
   </Card>
-</Columns>
+</CardGroup>
 
-## Create beautiful pages
+## Key features
 
-Everything you need to create world-class documentation.
+<CardGroup cols={2}>
+  <Card title="Zero boilerplate" icon="wand-magic-sparkles">
+    No code generation, no schema files. Just Java records and Carpet handles the rest.
+  </Card>
+  <Card title="Nested structures" icon="sitemap">
+    Full support for nested records, `List`, `Set`, `Map`, and combinations thereof.
+  </Card>
+  <Card title="Rich type support" icon="table">
+    Covers primitives, `String`, `UUID`, `BigDecimal`, all Java time types, enums, and geospatial data.
+  </Card>
+  <Card title="Column projections" icon="filter">
+    Read only the columns you need — Parquet skips the rest, saving I/O and CPU.
+  </Card>
+  <Card title="Type annotations" icon="tag">
+    Control how fields are stored with `@Alias`, `@NotNull`, `@PrecisionScale`, `@ParquetJson`, and more.
+  </Card>
+  <Card title="Write Model API" icon="sliders">
+    Map any Java class — not just records — to Parquet with custom field names and computed values.
+  </Card>
+  <Card title="Low-level access" icon="gear">
+    Build native `ParquetWriter` / `ParquetReader` instances for third-party library integration.
+  </Card>
+  <Card title="Minimal dependencies" icon="feather">
+    Ships without Hadoop. Only the essential `parquet-java` dependencies are included.
+  </Card>
+</CardGroup>
 
-<Columns cols={2}>
-  <Card
-    title="Write with MDX"
-    icon="pen-fancy"
-    href="/essentials/markdown"
-  >
-    Use MDX to style your docs pages.
-  </Card>
-  <Card
-    title="Code samples"
-    icon="code"
-    href="/essentials/code"
-  >
-    Add sample code to demonstrate how to use your product.
-  </Card>
-  <Card
-    title="Images"
-    icon="image"
-    href="/essentials/images"
-  >
-    Display images and other media.
-  </Card>
-  <Card
-    title="Reusable snippets"
-    icon="recycle"
-    href="/essentials/reusable-snippets"
-  >
-    Write once and reuse across your docs.
-  </Card>
-</Columns>
+## Advanced topics
 
-## Need inspiration?
-
-<Card
-  title="See complete examples"
-  icon="stars"
-  href="https://mintlify.com/customers"
->
-  Browse our showcase of exceptional documentation sites.
-</Card>
+<CardGroup cols={2}>
+  <Card title="Data types" icon="database" href="/advanced/data-types">
+    Complete reference for all supported Java-to-Parquet type mappings.
+  </Card>
+  <Card title="Java type annotations" icon="at" href="/advanced/java-type-annotations">
+    Fine-grained control over logical types, JSON/BSON storage, and decimal precision.
+  </Card>
+  <Card title="Column mapping" icon="arrows-left-right" href="/advanced/column-mapping">
+    Alias columns, convert to snake_case, and match fields flexibly on read.
+  </Card>
+  <Card title="Write Model" icon="pen-ruler" href="/advanced/write-model">
+    Programmatically define Parquet schemas for any Java class.
+  </Card>
+  <Card title="Configuration" icon="sliders" href="/advanced/configuration">
+    Tune compression, page sizes, BigDecimal scale, and time units.
+  </Card>
+  <Card title="Low-level Parquet" icon="code" href="/advanced/low-level-parquet">
+    Use native `ParquetWriter` and `ParquetReader` with Carpet's schema engine.
+  </Card>
+</CardGroup>

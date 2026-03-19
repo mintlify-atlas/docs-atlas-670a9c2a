@@ -1,0 +1,104 @@
+---
+title: "Introduction"
+description: "Carpet is a Java library for reading and writing Apache Parquet files using Java 17 records."
+---
+
+## What is Carpet?
+
+Carpet is a lightweight Java library that makes working with [Apache Parquet](https://parquet.apache.org/) files straightforward. It uses reflection on Java records to automatically derive Parquet schemas, handling serialization and deserialization without any code generation or class inheritance.
+
+Carpet sits on top of the official [parquet-java](https://github.com/apache/parquet-java/) library and exposes a clean, minimal API via `CarpetWriter` and `CarpetReader`.
+
+## Why Parquet?
+
+Apache Parquet is a columnar storage format designed for efficient analytics:
+
+- **Columnar layout** — reads only the columns your query needs, skipping the rest
+- **Compression** — columnar data compresses far better than row-oriented formats
+- **Interoperability** — readable by Spark, Flink, DuckDB, pandas, Arrow, and many more
+- **Schema embedding** — the file carries its own schema, making it self-describing
+
+## Why Carpet?
+
+Most Java Parquet integrations require Hadoop, code generation, or verbose configuration. Carpet removes that friction:
+
+<CardGroup cols={2}>
+  <Card title="No Hadoop required" icon="feather">
+    Carpet works with local files by default and excludes most Hadoop transitive dependencies.
+  </Card>
+  <Card title="No code generation" icon="wand-magic-sparkles">
+    Define a Java record and Carpet derives the Parquet schema automatically via reflection.
+  </Card>
+  <Card title="Simple API" icon="play">
+    `CarpetWriter` and `CarpetReader` are the only classes you need for most use cases.
+  </Card>
+  <Card title="Escape hatches" icon="door-open">
+    When you need full control, access the native `ParquetWriter` / `ParquetReader` directly.
+  </Card>
+</CardGroup>
+
+## How it works
+
+### Writing
+
+Carpet inspects your record's component types via reflection and builds a Parquet `MessageType` schema. It then writes each record's fields to the appropriate Parquet columns.
+
+```java
+record Product(long id, String name, double price) {}
+
+List<Product> products = fetchProducts();
+try (var out = new FileOutputStream("products.parquet")) {
+    try (var writer = new CarpetWriter<>(out, Product.class)) {
+        writer.write(products);
+    }
+}
+```
+
+The generated Parquet schema:
+```
+message Product {
+  required int64 id;
+  optional binary name (STRING);
+  required double price;
+}
+```
+
+### Reading
+
+Carpet reads the Parquet file's footer schema and maps columns back to your record's components by name. Projection is automatic — if your record has fewer fields than the file, only those columns are read from disk.
+
+```java
+List<Product> products = new CarpetReader<>(new File("products.parquet"), Product.class).toList();
+```
+
+### Schema evolution
+
+When reading, Carpet provides configuration options to handle schema mismatches — missing columns, type narrowing conversions, and null handling for primitive fields — without throwing exceptions.
+
+## Getting started
+
+<Steps>
+  <Step title="Add the dependency">
+    Add `carpet-record` to your Maven or Gradle project. See [Installation](/getting-started/installation).
+  </Step>
+  <Step title="Define a record">
+    Create a standard Java record that represents the structure of your data.
+  </Step>
+  <Step title="Write and read">
+    Use `CarpetWriter` to serialize and `CarpetReader` to deserialize. See [Basic Usage](/getting-started/basic-usage).
+  </Step>
+</Steps>
+
+## Maven coordinates
+
+```xml pom.xml
+<dependency>
+    <groupId>com.jerolba</groupId>
+    <artifactId>carpet-record</artifactId>
+    <version>0.6.1</version>
+</dependency>
+```
+
+<Note>
+Carpet requires Java 17 or later because it relies on Java records and modern reflection APIs.
+</Note>

@@ -1,0 +1,320 @@
+---
+title: "Write Model"
+description: "Programmatically define how Java objects map to Parquet columns using Carpet's Write Model API, with support for field renaming, computed fields, non-record classes, and runtime-dynamic schemas."
+---
+
+Carpet can automatically map Java records to Parquet schemas using reflection, but sometimes you need more control. The Write Model API lets you explicitly specify which fields to write, what to name them in the Parquet file, which Parquet types to use, and how to extract values from your objects — all without modifying the Java class itself.
+
+## When to use a Write Model
+
+<CardGroup cols={2}>
+  <Card title="Non-record classes" icon="building">
+    Write POJOs and legacy classes that aren’t Java records, using getter methods as accessors.
+  </Card>
+  <Card title="Field renaming" icon="pencil">
+    Output columns with names that differ from the Java field names without adding annotations.
+  </Card>
+  <Card title="Computed fields" icon="calculator">
+    Derive new columns from existing data using lambda expressions.
+  </Card>
+  <Card title="Dynamic schemas" icon="sliders">
+    Build the schema at runtime based on configuration, feature flags, or metadata.
+  </Card>
+</CardGroup>
+
+## Creating a Write Model
+
+Import `FieldTypes.*` and call `writeRecordModel()` to start building:
+
+```java WriteModel.java
+import static com.jerolba.carpet.model.FieldTypes.*;
+
+record Person(String name, int age, String email) {}
+
+var writeModel = writeRecordModel(Person.class)
+    .withField("person_name", STRING, Person::name)
+    .withField("person_age", INTEGER, Person::age)
+    .withField("email_address", STRING, Person::email);
+```
+
+Then pass the model to the writer:
+
+<Tabs>
+  <Tab title="Using CarpetWriter">
+
+```java CarpetWriter.java
+try (CarpetWriter<Person> writer = new CarpetWriter.Builder<>(outputStream, Person.class)
+        .withWriteRecordModel(writeModel)
+        .build()) {
+    writer.write(List.of(
+        new Person("Alice", 30, "alice@example.com"),
+        new Person("Bob", 25, "bob@example.com")
+    ));
+}
+```
+
+  </Tab>
+  <Tab title="Using CarpetParquetWriter">
+
+```java CarpetParquetWriter.java
+try (ParquetWriter<Person> writer = CarpetParquetWriter.builder(outputFile, Person.class)
+        .withWriteRecordModel(writeModel)
+        .build()) {
+    writer.write(new Person("Charlie", 35, "charlie@example.com"));
+}
+```
+
+  </Tab>
+</Tabs>
+
+## Field mapping
+
+### Primitive types
+
+For Java primitives, use specialized accessor functions that avoid boxing. The field type is inferred from the function signature:
+
+```java Metrics.java
+record Metrics(int count, long total, float average, double ratio,
+               short level, byte flag, boolean active) {}
+
+var writeModel = writeRecordModel(Metrics.class)
+    .withField("count",   Metrics::count)    // ToIntFunction
+    .withField("total",   Metrics::total)    // ToLongFunction
+    .withField("average", Metrics::average)  // ToFloatFunction
+    .withField("ratio",   Metrics::ratio)    // ToDoubleFunction
+    .withField("level",   Metrics::level)    // ToShortFunction
+    .withField("flag",    Metrics::flag)     // ToByteFunction
+    .withField("active",  Metrics::active);  // ToBooleanFunction
+```
+
+### Object types
+
+For reference types, specify the `FieldType` constant explicitly:
+
+```java Order.java
+record Order(UUID id, String customerName, BigDecimal amount,
+             LocalDate orderDate, LocalDateTime createdAt) {}
+
+var writeModel = writeRecordModel(Order.class)
+    .withField("order_id",    UUID,            Order::id)
+    .withField("customer",    STRING,          Order::customerName)
+    .withField("amount",      BIG_DECIMAL,     Order::amount)
+    .withField("order_date",  LOCAL_DATE,      Order::orderDate)
+    .withField("created_at",  LOCAL_DATE_TIME, Order::createdAt);
+```
+
+## Collections
+
+### Lists and Sets
+
+Use `LIST.ofType()` and `SET.ofType()` to declare collection fields. Both map to the Parquet `LIST` type:
+
+```java ShoppingCart.java
+record ShoppingCart(String userId, List<String> productIds, Set<String> tags) {}
+
+var writeModel = writeRecordModel(ShoppingCart.class)
+    .withField("user_id",   STRING,              ShoppingCart::userId)
+    .withField("products",  LIST.ofType(STRING), ShoppingCart::productIds)
+    .withField("tags",      SET.ofType(STRING),  ShoppingCart::tags);
+```
+
+### Maps
+
+Use `MAP.ofTypes(keyType, valueType)` to declare map fields:
+
+```java Configuration.java
+record Configuration(String appName, Map<String, String> settings,
+                    Map<String, Integer> counters) {}
+
+var writeModel = writeRecordModel(Configuration.class)
+    .withField("app_name", STRING,                        Configuration::appName)
+    .withField("settings", MAP.ofTypes(STRING, STRING),   Configuration::settings)
+    .withField("counters", MAP.ofTypes(STRING, INTEGER),  Configuration::counters);
+```
+
+## Nested records
+
+Compose Write Models to represent nested structures. Define the innermost models first:
+
+```java Person.java
+record Address(String street, String city, String zipCode) {}
+record Person(String name, int age, Address address) {}
+
+var addressModel = writeRecordModel(Address.class)
+    .withField("street",   STRING, Address::street)
+    .withField("city",     STRING, Address::city)
+    .withField("zip_code", STRING, Address::zipCode);
+
+var personModel = writeRecordModel(Person.class)
+    .withField("full_name", STRING,       Person::name)
+    .withField("age",       INTEGER,      Person::age)
+    .withField("address",   addressModel, Person::address);
+```
+
+Nested models can also be used as list elements or map values:
+
+```java Order.java
+record Item(String name, BigDecimal price) {}
+record Order(String orderId, List<Item> items) {}
+
+var itemModel = writeRecordModel(Item.class)
+    .withField("product_name", STRING,                           Item::name)
+    .withField("unit_price",   BIG_DECIMAL.withPrecisionScale(10, 2), Item::price);
+
+var orderModel = writeRecordModel(Order.class)
+    .withField("order_id", STRING,                Order::orderId)
+    .withField("items",    LIST.ofType(itemModel), Order::items);
+```
+
+## Advanced field types
+
+### Enums
+
+```java Task.java
+enum Priority { LOW, MEDIUM, HIGH }
+record Task(String title, Priority priority) {}
+
+// Store as Parquet ENUM logical type
+var writeModel1 = writeRecordModel(Task.class)
+    .withField("title",    STRING,                    Task::title)
+    .withField("priority", ENUM.ofType(Priority.class), Task::priority);
+
+// Store as Parquet STRING logical type
+var writeModel2 = writeRecordModel(Task.class)
+    .withField("title",    STRING,                               Task::title)
+    .withField("priority", ENUM.ofType(Priority.class).asString(), Task::priority);
+```
+
+### BigDecimal with precision and scale
+
+```java FinancialRecord.java
+record FinancialRecord(String account, BigDecimal balance) {}
+
+var writeModel = writeRecordModel(FinancialRecord.class)
+    .withField("account", STRING,                              FinancialRecord::account)
+    .withField("balance", BIG_DECIMAL.withPrecisionScale(10, 2), FinancialRecord::balance);
+```
+
+### JSON, BSON, and Binary
+
+```java Document.java
+record Document(String title, String jsonData, Binary bsonData, Binary content) {}
+
+var writeModel = writeRecordModel(Document.class)
+    .withField("title",     STRING,          Document::title)
+    .withField("json_data", STRING.asJson(),  Document::jsonData)
+    .withField("bson_data", BINARY.asBson(),  Document::bsonData)
+    .withField("content",   BINARY,           Document::content);
+```
+
+### Geospatial
+
+```java Location.java
+import org.locationtech.jts.geom.Geometry;
+
+record Location(String name, Geometry geometry) {}
+
+// Planar geometry
+var geometryModel = writeRecordModel(Location.class)
+    .withField("name",     STRING,                                        Location::name)
+    .withField("geometry", GEOMETRY.asParquetGeometry("EPSG:4326"),       Location::geometry);
+
+// Spherical geography
+var geographyModel = writeRecordModel(Location.class)
+    .withField("name",     STRING,                                                               Location::name)
+    .withField("geometry", GEOMETRY.asParquetGeography("OGC:CRS84", EdgeInterpolationAlgorithm.SPHERICAL), Location::geometry);
+```
+
+### Nullability
+
+Use `.notNull()` to mark a field as `required` in the Parquet schema:
+
+```java Data.java
+record Data(String required, String optional) {}
+
+var writeModel = writeRecordModel(Data.class)
+    .withField("required_field", STRING.notNull(), Data::required)
+    .withField("optional_field", STRING,           Data::optional);
+```
+
+## Non-record classes (POJOs)
+
+Write Models work with any Java class. Use method references to getter methods:
+
+```java LegacyData.java
+public class LegacyData {
+    private String id;
+    private int value;
+    private List<String> tags;
+
+    public String getId()          { return id; }
+    public int getValue()          { return value; }
+    public List<String> getTags()  { return tags; }
+}
+
+var writeModel = writeRecordModel(LegacyData.class)
+    .withField("identifier", STRING,              LegacyData::getId)
+    .withField("value",      INTEGER,             LegacyData::getValue)
+    .withField("tags",       LIST.ofType(STRING), LegacyData::getTags);
+```
+
+## Computed and derived fields
+
+Accessor functions can contain arbitrary logic. This lets you write derived columns without modifying the source class:
+
+```java Employee.java
+record Employee(String firstName, String lastName, LocalDate birthDate) {}
+
+var now = LocalDate.now();
+var writeModel = writeRecordModel(Employee.class)
+    .withField("first_name", STRING,     Employee::firstName)
+    .withField("last_name",  STRING,     Employee::lastName)
+    .withField("full_name",  STRING,     emp -> emp.firstName() + " " + emp.lastName())
+    .withField("birth_date", LOCAL_DATE, Employee::birthDate)
+    .withField("age_years",  INTEGER,    emp ->
+        Period.between(emp.birthDate(), now).getYears());
+```
+
+## Dynamic model creation
+
+Build the Write Model at runtime based on configuration or metadata:
+
+```java VersionedModel.java
+public static WriteRecordModelType<Foo> createVersionedModel(int schemaVersion) {
+
+    var modelBuilder = writeRecordModel(Foo.class);
+
+    // Fields present in all versions
+    modelBuilder
+        .withField("id",   STRING, Foo::id)
+        .withField("name", STRING, Foo::name);
+
+    // Version-specific fields
+    if (schemaVersion >= 2) {
+        modelBuilder.withField("email", STRING, Foo::email);
+    }
+    if (schemaVersion >= 3) {
+        modelBuilder.withField("created_at", INSTANT, Foo::createdAt);
+    }
+    return modelBuilder;
+}
+```
+
+You can also generate fields from a list of codes loaded at runtime:
+
+```java DynamicFields.java
+record Item(String code, double value, String meta) {}
+record Order(UUID orderId, Map<String, Item> items) {}
+
+List<String> validCodes = List.of("a", "b", "c", "d"); // loaded from config
+var writeModel = writeRecordModel(Order.class)
+    .withField("order_id", UUID, Order::orderId);
+for (var code : validCodes) {
+    writeModel.withField("item_" + code + "_value", DOUBLE, order -> order.items().get(code).value());
+    writeModel.withField("item_" + code + "_meta",  STRING, order -> order.items().get(code).meta());
+}
+```
+
+<Warning>
+Write Models do not validate that accessor function return types match the declared field type. A mismatch (e.g., declaring `INTEGER` but returning a `String`) will throw a `ClassCastException` at runtime when writing the first row.
+</Warning>

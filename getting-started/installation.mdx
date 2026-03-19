@@ -1,0 +1,56 @@
+---
+title: "Installation"
+description: "Add Carpet to your Java project using Maven or Gradle."
+---
+
+<Steps>
+  <Step title="Check requirements">
+    Carpet requires **Java 17** or later. Make sure your project targets Java 17+.
+  </Step>
+
+  <Step title="Add the dependency">
+    Add `carpet-record` to your build file:
+
+    <CodeGroup>
+
+    ```xml pom.xml
+    <dependency>
+        <groupId>com.jerolba</groupId>
+        <artifactId>carpet-record</artifactId>
+        <version>0.6.1</version>
+    </dependency>
+    ```
+
+    ```gradle build.gradle
+    implementation 'com.jerolba:carpet-record:0.6.1'
+    ```
+
+    </CodeGroup>
+  </Step>
+
+  <Step title="Sync your project">
+    Run your build tool to download the dependency:
+
+    <CodeGroup>
+
+    ```bash Maven
+    mvn dependency:resolve
+    ```
+
+    ```bash Gradle
+    ./gradlew dependencies
+    ```
+
+    </CodeGroup>
+  </Step>
+</Steps>
+
+## Transitive dependencies and Hadoop
+
+Carpet is designed to work with local filesystems by default and includes only the minimal Parquet-related dependencies needed for read and write operations.
+
+While Parquet was originally developed as part of the Hadoop ecosystem, Carpet explicitly excludes most Hadoop-related transitive dependencies to keep the library lightweight.
+
+<Note>
+  If you need Hadoop functionality (such as HDFS support), you must explicitly add Hadoop dependencies to your project. They are not pulled in by Carpet.
+</Note>

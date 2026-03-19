@@ -1,0 +1,199 @@
+---
+title: "CarpetReader API"
+description: "Read Java records from Parquet files using CarpetReader's stream, list, and iterator methods."
+---
+
+`CarpetReader<T>` deserializes records from a Parquet file. It implements `Iterable<T>`, so you can use it in for-each loops, collect to a list, stream lazily, or drive an explicit iterator.
+
+## Instantiation
+
+Provide a `File` or a Parquet `InputFile` along with the record class you want to read into.
+
+<CodeGroup>
+
+```java File
+var reader = new CarpetReader<>(new File("data.parquet"), MyRecord.class);
+```
+
+```java InputFile
+var inputFile = new FileSystemInputFile(new File("data.parquet"));
+var reader = new CarpetReader<>(inputFile, MyRecord.class);
+```
+
+</CodeGroup>
+
+<Note>
+`CarpetReader` does **not** open or read the file on construction. The file is accessed only when you call `stream()`, `toList()`, `iterator()`, or iterate with a for-each loop.
+</Note>
+
+<Warning>
+`InputStream` is **not** supported. Parquet requires random access to read the footer metadata and data pages scattered throughout the file. An `InputStream` only provides sequential forward-only access, which is incompatible with the Parquet format.
+</Warning>
+
+## Read methods
+
+### `stream()`
+
+Returns a lazy `Stream<T>`. Records are read from disk as the stream is consumed — the entire file is not loaded into memory upfront. The stream is closed automatically when processing completes.
+
+```java CarpetReader.java
+public Stream<T> stream()
+```
+
+```java Lazy stream processing
+var reader = new CarpetReader<>(new File("data.parquet"), MyRecord.class);
+
+List<OtherType> result = reader.stream()
+    .filter(r -> r.value() > 100.0)
+    .map(this::mapToOtherType)
+    .toList();
+```
+
+<Tip>
+Use `stream()` for large files where loading everything into memory is not practical, or when you want to apply filter and map operations before collecting.
+</Tip>
+
+### `toList()`
+
+Reads all records into a `List<T>`. This is the simplest option when you need the full dataset in memory.
+
+```java CarpetReader.java
+public List<T> toList() throws IOException
+```
+
+```java Collect all records
+List<MyRecord> records = new CarpetReader<>(new File("data.parquet"), MyRecord.class).toList();
+```
+
+### For-each loop
+
+`CarpetReader<T>` implements `Iterable<T>`, so you can use it directly in a for-each loop.
+
+```java For-each iteration
+var reader = new CarpetReader<>(new File("data.parquet"), MyRecord.class);
+for (MyRecord record : reader) {
+    process(record);
+}
+```
+
+### `iterator()`
+
+Returns a `CloseableIterator<T>` for explicit iteration control.
+
+```java CarpetReader.java
+@Override
+public CloseableIterator<T> iterator()
+```
+
+```java Manual iterator
+var reader = new CarpetReader<>(new File("data.parquet"), MyRecord.class);
+Iterator<MyRecord> iterator = reader.iterator();
+while (iterator.hasNext()) {
+    MyRecord record = iterator.next();
+    process(record);
+}
+```
+
+## Reader configuration
+
+Configuration methods return a new `CarpetReader` instance and can be chained.
+
+```java Chained configuration
+var reader = new CarpetReader<>(new File("data.parquet"), MyRecord.class)
+    .withFailOnMissingColumn(false)
+    .withFailOnNullForPrimitives(true);
+
+List<MyRecord> records = reader.toList();
+```
+
+### Configuration options
+
+<AccordionGroup>
+
+  <Accordion title="withFailOnMissingColumn(boolean)">
+    Controls what happens when the Parquet file does not contain a column that exists in the record type.
+
+    - `true` (default) — throws `RecordTypeConversionException` if a column is missing
+    - `false` — sets the missing field to its default value (`null` for objects, `0` / `false` for primitives)
+
+    ```java
+    // Allow reading files that lack some fields
+    var reader = new CarpetReader<>(file, MyRecord.class)
+        .withFailOnMissingColumn(false);
+    ```
+
+    <Tip>
+    Set this to `false` when evolving your schema and reading old files that predate a new field.
+    </Tip>
+  </Accordion>
+
+  <Accordion title="withFailOnNullForPrimitives(boolean)">
+    Controls what happens when a Parquet column contains `null` but the record field is a Java primitive (`int`, `double`, `boolean`, etc.).
+
+    - `false` (default) — uses JVM defaults (`0` for `int`, `0.0` for `double`, `false` for `boolean`)
+    - `true` — throws `RecordTypeConversionException` when a null is encountered
+
+    ```java
+    // Treat null in a primitive column as an error
+    var reader = new CarpetReader<>(file, MyRecord.class)
+        .withFailOnNullForPrimitives(true);
+    ```
+  </Accordion>
+
+  <Accordion title="withFailNarrowingPrimitiveConversion(boolean)">
+    Controls whether a narrowing numeric conversion (e.g., `long` → `int`, `double` → `float`) is treated as an error.
+
+    - `false` (default) — truncates the value following the Java Language Specification rules for narrowing conversions
+    - `true` — throws `RecordTypeConversionException` when a narrowing conversion would occur
+
+    ```java
+    // Reject lossy numeric conversions
+    var reader = new CarpetReader<>(file, MyRecord.class)
+        .withFailNarrowingPrimitiveConversion(true);
+    ```
+  </Accordion>
+
+  <Accordion title="withFieldMatchingStrategy(FieldMatchingStrategy)">
+    Defines how Parquet column names are matched to Java record component names.
+
+    ```java
+    var reader = new CarpetReader<>(file, MyRecord.class)
+        .withFieldMatchingStrategy(FieldMatchingStrategy.SNAKE_CASE);
+    ```
+
+    Use this when the Parquet file was written with a naming convention that differs from your record component names (for example, `snake_case` columns mapped to `camelCase` fields).
+  </Accordion>
+
+</AccordionGroup>
+
+## Builder
+
+For more advanced use cases, use `CarpetReader.Builder` to configure the reader before building.
+
+```java CarpetReader.Builder
+var reader = new CarpetReader.Builder<>(new File("data.parquet"), MyRecord.class)
+    .failOnMissingColumn(false)
+    .failOnNullForPrimitives(true)
+    .failNarrowingPrimitiveConversion(true)
+    .build();
+
+List<MyRecord> records = reader.toList();
+```
+
+## Full example
+
+```java Reading with configuration
+record SensorReading(String sensorId, Instant timestamp, double value) {}
+
+var reader = new CarpetReader<>(new File("readings.parquet"), SensorReading.class)
+    .withFailOnMissingColumn(false)
+    .withFailOnNullForPrimitives(true);
+
+// Stream processing — file read lazily
+double average = reader.stream()
+    .mapToDouble(SensorReading::value)
+    .average()
+    .orElse(0.0);
+
+System.out.println("Average sensor value: " + average);
+```

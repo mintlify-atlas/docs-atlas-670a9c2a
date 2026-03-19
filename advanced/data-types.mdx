@@ -1,0 +1,277 @@
+---
+title: "Supported Data Types"
+description: "Complete reference for Java-to-Parquet type mappings in Carpet, including primitives, temporal types, decimals, binary, geospatial, nested structures, and known limitations."
+---
+
+Carpet maps Java types to Parquet data types automatically using reflection. This page documents every supported type, the resulting Parquet schema, and the constraints you need to be aware of.
+
+## Basic types
+
+| Java type | Parquet physical type | Logical type |
+|---|---|---|
+| `boolean` / `Boolean` | `boolean` | — |
+| `byte` / `Byte` | `int32` | `INT(8)` |
+| `short` / `Short` | `int32` | `INT(16)` |
+| `int` / `Integer` | `int32` | — |
+| `long` / `Long` | `int64` | — |
+| `float` / `Float` | `float` | — |
+| `double` / `Double` | `double` | — |
+| `Binary` | `binary` | — |
+| `String` | `binary` | `STRING` |
+| `Enum` | `binary` | `ENUM` |
+| `UUID` | `fixed_len_byte_array(16)` | `UUID` |
+
+<Note>
+Primitive Java types (`int`, `long`, `double`, etc.) produce `required` columns in Parquet. Their boxed equivalents (`Integer`, `Long`, `Double`) produce `optional` columns. See [Nullability](/advanced/nullability) for details.
+</Note>
+
+## Temporal types
+
+All standard Java time types from `java.time` are supported:
+
+| Java type | Parquet physical type | Logical type |
+|---|---|---|
+| `LocalDate` | `int32` | `DATE` |
+| `LocalTime` | `int32` or `int64` | `TIME(MILLIS\|MICROS)` / `TIME(NANOS)` |
+| `LocalDateTime` | `int64` | `TIMESTAMP(MILLIS\|MICROS\|NANOS)` |
+| `Instant` | `int64` | `TIMESTAMP(MILLIS\|MICROS\|NANOS, UTC)` |
+
+<Note>
+The time unit (`MILLIS`, `MICROS`, or `NANOS`) is configured globally on the writer and defaults to `MILLIS`. See [Configuration](/advanced/configuration) for how to change it.
+</Note>
+
+## Decimal numbers
+
+The physical Parquet type chosen for `BigDecimal` depends on the configured precision:
+
+| Precision | Parquet physical type | Logical type |
+|---|---|---|
+| ≤ 9 digits | `int32` | `DECIMAL(p, s)` |
+| ≤ 18 digits | `int64` | `DECIMAL(p, s)` |
+| > 18 digits | `binary` or `fixed_len_byte_array` | `DECIMAL(p, s)` |
+
+<Warning>
+There is no default precision/scale for `BigDecimal`. If Carpet encounters a `BigDecimal` field without a configured precision and scale, it throws an exception. You must either annotate the field with `@PrecisionScale` or configure it globally on the writer. See [Java Type Annotations](/advanced/java-type-annotations) and [Configuration](/advanced/configuration).
+</Warning>
+
+## Binary
+
+Carpet supports `org.apache.parquet.io.api.Binary` for storing raw binary data. This is the lowest-level storage type and maps directly to Parquet's `binary` physical type without any logical type annotation.
+
+```java SimpleRecord.java
+record SimpleRecord(long id, Binary data) { }
+```
+
+The resulting Parquet schema:
+
+```
+message SimpleRecord {
+    required int64 id;
+    optional binary data;
+}
+```
+
+You can also annotate `Binary` fields with `@ParquetJson`, `@ParquetBson`, `@ParquetString`, or `@ParquetEnum` to attach a logical type without changing the physical storage. See [Java Type Annotations](/advanced/java-type-annotations).
+
+## JSON and BSON types
+
+Java has no native JSON or BSON type. Carpet lets you use `String` or `Binary` fields annotated with `@ParquetJson` or `@ParquetBson` to embed these data formats with the correct Parquet logical type:
+
+```java ProductEvent.java
+record ProductEvent(long id, Instant timestamp, @ParquetJson String jsonData) {}
+```
+
+```
+message ProductEvent {
+    required int64 id;
+    required int64 timestamp (TIMESTAMP(MILLIS,true));
+    optional binary jsonData (JSON);
+}
+```
+
+Carpet does not validate the content — you are responsible for ensuring the data is well-formed JSON or BSON. Full annotation documentation is in [Java Type Annotations](/advanced/java-type-annotations).
+
+## Geospatial types
+
+Carpet supports geospatial data via JTS (Java Topology Suite) `Geometry` objects or raw `Binary` in Well-Known Binary (WKB) format.
+
+### JTS Geometry
+
+Annotate a `Geometry` field with `@ParquetGeometry` or `@ParquetGeography` and Carpet serializes it to WKB automatically:
+
+```java Location.java
+record Location(String name, @ParquetGeometry Geometry geom) { }
+
+GeometryFactory factory = new GeometryFactory();
+Point point = factory.createPoint(new Coordinate(1.0, 2.0));
+var location = new Location("Office", point);
+```
+
+### Binary (WKB format)
+
+If you already have WKB bytes from another library, use `Binary` directly:
+
+```java GeospatialRecord.java
+record GeospatialRecord(String id, @ParquetGeometry Binary geometry) { }
+
+WKBWriter writer = new WKBWriter();
+Binary wkb = Binary.fromConstantByteArray(writer.write(geometry));
+var record = new GeospatialRecord("location1", wkb);
+```
+
+### Geometry vs. Geography
+
+| Annotation | Coordinate system | Use case |
+|---|---|---|
+| `@ParquetGeometry` | Planar / projected | Flat-plane calculations, projected CRS |
+| `@ParquetGeography` | Spherical (lat/lon) | GPS coordinates, global datasets |
+
+Both annotations accept a CRS identifier and, for `@ParquetGeography`, an edge interpolation algorithm. Full configuration options are documented in [Java Type Annotations](/advanced/java-type-annotations).
+
+## Nested structures
+
+Parquet's columnar format natively supports nested data. Carpet generates nested Parquet groups from Java records, `List`, `Set`, and `Map` fields.
+
+### Nested records
+
+Nested Java records become Parquet group types:
+
+```java Person.java
+record Address(String street, String zip, String city) { }
+record Job(String company, String position, int years) { }
+record Person(long id, Job job, Address address) { }
+
+try (var writer = new CarpetWriter<>(outputFile, Person.class)) {
+    var president = new Person(1010101, new Job("USA", "POTUS", 3),
+        new Address("1600 Pennsylvania Av.", "20500", "Washington"));
+    writer.write(president);
+}
+```
+
+```
+message Person {
+  required int64 id;
+  optional group job {
+    optional binary company (STRING);
+    optional binary position (STRING);
+    required int32 years;
+  }
+  optional group address {
+    optional binary street (STRING);
+    optional binary zip (STRING);
+    optional binary city (STRING);
+  }
+}
+```
+
+### Collections
+
+Fields typed as `List` or any `Collection` produce Parquet `LIST` groups. Elements can be any supported type, including nested records:
+
+```java Invoice.java
+record Line(String sku, int quantity, double price) { }
+record Invoice(String id, double amount, double taxes, List<Line> lines) { }
+
+try (var writer = new CarpetWriter<>(outputFile, Invoice.class)) {
+    var invoice = new Invoice("2023/211", 2323.23, 232.32, List.of(
+        new Line("AAA", 3, 500.0), new Line("BBB", 1, 823.23)));
+    writer.write(invoice);
+}
+```
+
+```
+message Invoice {
+  optional binary id (STRING);
+  optional group lines (LIST) {
+    repeated group list {
+      optional group element {
+        optional binary sku (STRING);
+        required int32 quantity;
+        required double price;
+      }
+    }
+  }
+}
+```
+
+When reading, you can deserialize a `LIST` column into any `Collection` implementation that has a no-argument constructor.
+
+### Maps
+
+Fields typed as `Map` produce Parquet `MAP` groups. Both keys and values must be concrete, supported types:
+
+```java Country.java
+record State(double area, int population) { }
+record Country(String name, double area, Map<String, State> states) { }
+
+try (var writer = new CarpetWriter<>(outputFile, Country.class)) {
+    var country = new Country("USA", 9_833_520.0, Map.of(
+        "Idaho", new State(216_444.0, 1_975_000),
+        "Texas", new State(695_662.0, 29_145_505)));
+    writer.write(country);
+}
+```
+
+```
+message Country {
+  optional binary name (STRING);
+  required double area;
+  optional group states (MAP) {
+    repeated group key_value {
+      required binary key (STRING);
+      optional group value {
+        required double area;
+        required int32 population;
+      }
+    }
+  }
+}
+```
+
+When reading, any `Map` implementation with a no-argument constructor is supported.
+
+## Limitations
+
+<Warning>
+The following patterns are not supported and will throw a `RecordTypeConversionException` at schema-generation time.
+</Warning>
+
+<AccordionGroup>
+  <Accordion title="Generic types">
+Records cannot have generic type parameters. Carpet needs concrete type information at schema-generation time to build the Parquet schema.
+
+```java
+// This will NOT work
+record WithGeneric<T>(String name, T child) { }
+
+// These work fine — the element type is concrete
+record WithList(String name, List<String> items) { }
+record WithMap(String name, Map<String, Integer> values) { }
+```
+
+Note that `List<String>` and `Map<String, Integer>` are fine because their type parameters are concrete at compile time.
+  </Accordion>
+
+  <Accordion title="java.lang.Record type">
+`java.lang.Record` itself is not a usable field type. Because any record could appear there, Carpet cannot determine the Parquet schema statically.
+
+```java
+record Child(long id, String value) { }
+// This will NOT work
+record WithParentRecord(String name, Record child) { }
+```
+  </Accordion>
+
+  <Accordion title="Recursive types">
+Direct or indirect recursive record references are not supported. Parquet requires a finite, fully-defined schema before any data is written.
+
+```java
+// This will NOT work — direct recursion
+record Node(String id, Node next) { }
+
+// This will NOT work — indirect recursion
+record Child(String id, Parent parent) { }
+record Parent(String id, Child child) { }
+```
+  </Accordion>
+</AccordionGroup>

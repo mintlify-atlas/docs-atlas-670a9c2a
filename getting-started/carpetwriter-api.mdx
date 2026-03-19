@@ -1,0 +1,242 @@
+---
+title: "CarpetWriter API"
+description: "Write Java records to Parquet files using CarpetWriter's flexible write methods and builder configuration."
+---
+
+`CarpetWriter<T>` serializes Java records to a Parquet file or output stream. It implements both `Closeable` and `Consumer<T>`, making it usable with try-with-resources and Java stream pipelines.
+
+## Instantiation
+
+You can construct a `CarpetWriter` directly from an `OutputStream` or a Parquet `OutputFile`.
+
+<CodeGroup>
+
+```java OutputStream
+try (var out = new FileOutputStream("data.parquet");
+     var writer = new CarpetWriter<>(out, MyRecord.class)) {
+    writer.write(record);
+}
+```
+
+```java OutputFile
+var outputFile = new FileSystemOutputFile(new File("data.parquet"));
+try (var writer = new CarpetWriter<>(outputFile, MyRecord.class)) {
+    writer.write(record);
+}
+```
+
+</CodeGroup>
+
+Use `FileSystemOutputFile` when writing to local files. It wraps a standard `java.io.File` into the Parquet `OutputFile` interface.
+
+<Note>
+`CarpetWriter` defaults to `Mode.OVERWRITE` and `CompressionCodecName.SNAPPY`. Use the builder to change these defaults.
+</Note>
+
+## Write methods
+
+`CarpetWriter` provides four methods for writing records. You can call any combination of them on the same writer instance.
+
+### `write(T value)`
+
+Writes a single record to the file.
+
+```java CarpetWriter.java
+public void write(T value) throws IOException
+```
+
+```java Example
+try (var writer = new CarpetWriter<>(outputFile, MyRecord.class)) {
+    writer.write(new MyRecord("foo", 42));
+    writer.write(new MyRecord("bar", 99));
+}
+```
+
+### `write(Collection<T> collection)`
+
+Iterates a collection and writes each element. Works with any `Collection` implementation.
+
+```java CarpetWriter.java
+public void write(Collection<T> collection) throws IOException
+```
+
+```java Example
+List<MyRecord> records = List.of(
+    new MyRecord("foo", 42),
+    new MyRecord("bar", 99)
+);
+try (var writer = new CarpetWriter<>(outputFile, MyRecord.class)) {
+    writer.write(records);
+}
+```
+
+### `write(Stream<T> stream)`
+
+Consumes a stream and writes each element. The stream is fully consumed before the method returns.
+
+```java CarpetWriter.java
+public void write(Stream<T> stream) throws IOException
+```
+
+```java Example
+try (var writer = new CarpetWriter<>(outputFile, MyRecord.class)) {
+    writer.write(fetchRecords().stream().filter(r -> r.value() > 0));
+}
+```
+
+### `accept(T value)`
+
+Implements `Consumer<T>` so you can pass `writer` directly into stream pipelines. Any `IOException` is wrapped as `UncheckedIOException`.
+
+```java CarpetWriter.java
+@Override
+public void accept(T value)  // throws UncheckedIOException
+```
+
+```java Example
+try (var writer = new CarpetWriter<>(outputFile, MyRecord.class)) {
+    fetchRecords().stream()
+        .filter(r -> r.active())
+        .forEach(writer);
+}
+```
+
+<Warning>
+`accept()` wraps `IOException` as `UncheckedIOException`. If you need to handle I/O errors explicitly, use `write(T value)` instead.
+</Warning>
+
+## Combining write methods
+
+All four methods can be called in any order on the same writer. Records from each call are appended to the file.
+
+```java Writing from multiple sources
+var outputFile = new FileSystemOutputFile(new File("combined.parquet"));
+try (var writer = new CarpetWriter<>(outputFile, MyRecord.class)) {
+    // Write a single record
+    writer.write(new MyRecord("header", 0));
+
+    // Write a collection
+    writer.write(List.of(new MyRecord("a", 1), new MyRecord("b", 2)));
+
+    // Write a stream
+    writer.write(Stream.of(new MyRecord("c", 3)));
+
+    // Use as a Consumer
+    fetchMoreRecords().forEach(writer);
+}
+```
+
+## Builder configuration
+
+Use `CarpetWriter.Builder` when you need to configure the writer beyond the defaults.
+
+```java Builder instantiation
+var writer = new CarpetWriter.Builder<>(outputFile, MyRecord.class)
+    .withCompressionCodec(CompressionCodecName.ZSTD)
+    .withColumnNamingStrategy(ColumnNamingStrategy.SNAKE_CASE)
+    .build();
+```
+
+The builder can also be constructed without a file and have the file set later:
+
+```java Deferred file
+var builder = new CarpetWriter.Builder<>(MyRecord.class)
+    .withCompressionCodec(CompressionCodecName.GZIP);
+
+// ... resolve the file path ...
+var writer = builder.withFile(outputFile).build();
+```
+
+### Configuration options
+
+<AccordionGroup>
+
+  <Accordion title="withWriteMode(Mode)">
+    Controls what happens if the output file already exists.
+
+    ```java
+    .withWriteMode(ParquetFileWriter.Mode.OVERWRITE) // default
+    .withWriteMode(ParquetFileWriter.Mode.CREATE)    // fail if file exists
+    ```
+  </Accordion>
+
+  <Accordion title="withCompressionCodec(CompressionCodecName)">
+    Sets the compression codec for all columns. Defaults to `SNAPPY`.
+
+    ```java
+    .withCompressionCodec(CompressionCodecName.SNAPPY)  // default
+    .withCompressionCodec(CompressionCodecName.ZSTD)
+    .withCompressionCodec(CompressionCodecName.GZIP)
+    .withCompressionCodec(CompressionCodecName.UNCOMPRESSED)
+    ```
+  </Accordion>
+
+  <Accordion title="withPageRowCountLimit(int)">
+    Sets the maximum number of rows stored in a single Parquet page. Smaller pages improve predicate pushdown at the cost of more overhead.
+
+    ```java
+    .withPageRowCountLimit(20_000)
+    ```
+  </Accordion>
+
+  <Accordion title="withBloomFilterEnabled(String, boolean)">
+    Enables or disables a Bloom filter for the specified column path. Bloom filters speed up equality lookups on large files.
+
+    ```java
+    .withBloomFilterEnabled("userId", true)
+    .withBloomFilterEnabled("email", true)
+    ```
+
+    To enable Bloom filters for all columns at once:
+
+    ```java
+    .withBloomFilterEnabled(true)
+    ```
+  </Accordion>
+
+  <Accordion title="withColumnNamingStrategy(ColumnNamingStrategy)">
+    Controls how Java record component names are mapped to Parquet column names in the schema.
+
+    ```java
+    .withColumnNamingStrategy(ColumnNamingStrategy.SNAKE_CASE)
+    ```
+
+    By default, Carpet uses the record component name verbatim.
+  </Accordion>
+
+  <Accordion title="withDefaultDecimal(int precision, int scale)">
+    Sets the default precision and scale for `BigDecimal` fields that lack an explicit `@Decimal` annotation.
+
+    ```java
+    .withDefaultDecimal(18, 4)
+    ```
+  </Accordion>
+
+  <Accordion title="withDefaultTimeUnit(TimeUnit)">
+    Sets the time unit used for `LocalTime`, `LocalDateTime`, and `Instant` fields.
+
+    ```java
+    .withDefaultTimeUnit(TimeUnit.MILLIS)
+    .withDefaultTimeUnit(TimeUnit.MICROS)
+    .withDefaultTimeUnit(TimeUnit.NANOS)
+    ```
+  </Accordion>
+
+</AccordionGroup>
+
+## Full builder example
+
+```java Configured writer
+record SensorReading(String sensorId, Instant timestamp, double value) {}
+
+var outputFile = new FileSystemOutputFile(new File("readings.parquet"));
+try (var writer = new CarpetWriter.Builder<>(outputFile, SensorReading.class)
+        .withWriteMode(ParquetFileWriter.Mode.OVERWRITE)
+        .withCompressionCodec(CompressionCodecName.ZSTD)
+        .withBloomFilterEnabled("sensorId", true)
+        .withDefaultTimeUnit(TimeUnit.MICROS)
+        .withPageRowCountLimit(50_000)
+        .build()) {
+    writer.write(readings);
+}
+```

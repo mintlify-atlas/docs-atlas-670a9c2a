@@ -1,0 +1,77 @@
+---
+title: "Nullability"
+description: "Control whether Parquet columns are required or optional using Java primitive types, boxed types, and the @NotNull annotation."
+---
+
+Parquet columns are either `required` (cannot be null) or `optional` (can be null). Carpet derives nullability automatically from the Java type of each record component.
+
+## Primitives → required
+
+Java primitive types (`int`, `long`, `double`, `boolean`, etc.) cannot hold null, so Carpet marks them as `required` in the Parquet schema:
+
+```java MyRecord.java
+record MyRecord(long id, String name, int size, double value) { }
+```
+
+```
+message MyRecord {
+  required int64 id;
+  optional binary name (STRING);
+  required int32 size;
+  required double value;
+}
+```
+
+Note that `String` is always `optional` by default because it is a reference type.
+
+## Boxed types → optional
+
+Boxed types (`Integer`, `Long`, `Double`, `Boolean`, etc.) can hold null, so Carpet marks them as `optional`:
+
+```java MyRecord.java
+record MyRecord(Long id, String name, Integer size, Double value) { }
+```
+
+```
+message MyRecord {
+  optional int64 id;
+  optional binary name (STRING);
+  optional int32 size;
+  optional double value;
+}
+```
+
+## `@NotNull` for reference types
+
+To mark a reference type field — `String`, `List`, `Map`, a nested record, etc. — as `required`, annotate it with `@NotNull`:
+
+```java MyRecord.java
+record MyRecord(@NotNull String id, @NotNull String name, @NotNull Address address) { }
+```
+
+```
+message MyRecord {
+  required binary id (STRING);
+  required binary name (STRING);
+  required group address {
+    optional binary street (STRING);
+    optional binary zip (STRING);
+    optional binary city (STRING);
+  }
+}
+```
+
+Notice that `address` itself is `required` (the group cannot be absent), but the fields *inside* `Address` remain optional because they use `String` without `@NotNull`.
+
+<Note>
+Carpet matches `@NotNull` annotations **by name only**, not by package. You can use any library that provides a `@NotNull` annotation — Carpet's own `com.jerolba.carpet.annotation.NotNull`, `javax.validation.constraints.NotNull`, `jakarta.annotation.Nonnull`, or any other. The annotation simply needs to be named `NotNull` or `Nonnull`.
+</Note>
+
+## Summary
+
+| Java type | Parquet repetition |
+|---|---|
+| Primitive (`int`, `long`, `double`, `boolean`, …) | `required` |
+| Boxed type (`Integer`, `Long`, `Double`, `Boolean`, …) | `optional` |
+| `String`, `List`, `Map`, record type (no annotation) | `optional` |
+| `String`, `List`, `Map`, record type + `@NotNull` | `required` |

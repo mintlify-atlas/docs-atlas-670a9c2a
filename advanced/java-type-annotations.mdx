@@ -1,0 +1,282 @@
+---
+title: "Java Type Annotations"
+description: "Use Carpet's type annotations to control Parquet logical types for String, Enum, Binary, BigDecimal, and geospatial fields."
+---
+
+Carpet provides a set of annotations that let you override the default Parquet logical type for a field without changing the Java type. These annotations affect only the schema metadata written to the Parquet file — they do not transform or validate the actual data.
+
+All annotations can be placed on record components or on collection element types (e.g., `List<@ParquetBson Binary>`).
+
+<AccordionGroup>
+
+<Accordion title="@ParquetString">
+
+Use `@ParquetString` when you have a `Binary` or `Enum` field that you want stored in Parquet with the `STRING` logical type instead of the default.
+
+**With `Binary`** — overrides the plain `binary` default:
+
+```java Person.java
+record Person(String name, @ParquetString Binary code) { }
+```
+
+```
+message Person {
+  optional binary name (STRING);
+  optional binary code (STRING);
+}
+```
+
+This is useful when the data originates as `Binary` bytes but represents text.
+
+**With `Enum`** — stores the enum value as a `STRING` rather than `ENUM`:
+
+```java Person.java
+enum Category { HIGH, MEDIUM, LOW }
+
+record Person(String name, @ParquetString Category category) { }
+```
+
+```
+message Person {
+  optional binary name (STRING);
+  optional binary category (STRING);
+}
+```
+
+Useful when downstream consumers expect a plain string rather than a Parquet `ENUM` type.
+
+</Accordion>
+
+<Accordion title="@ParquetEnum">
+
+Use `@ParquetEnum` when you have a `String` or `Binary` field that you want stored with the `ENUM` logical type.
+
+**With `Binary`**:
+
+```java Person.java
+record Person(String name, @ParquetEnum Binary code) { }
+```
+
+```
+message Person {
+  optional binary name (STRING);
+  optional binary code (ENUM);
+}
+```
+
+**With `String`**:
+
+```java Person.java
+record Person(String name, @ParquetEnum String category) { }
+```
+
+```
+message Person {
+  optional binary name (STRING);
+  optional binary category (ENUM);
+}
+```
+
+Useful when you are working with string data but need to maintain `ENUM` compatibility in the Parquet schema for contract reasons.
+
+</Accordion>
+
+<Accordion title="@ParquetJson">
+
+Annotate a `String` or `Binary` field with `@ParquetJson` to store it as Parquet `binary` with the `JSON` logical type.
+
+```java ProductEvent.java
+record ProductEvent(long id, Instant timestamp, @ParquetJson String jsonData) {}
+```
+
+```
+message ProductEvent {
+    required int64 id;
+    required int64 timestamp (TIMESTAMP(MILLIS,true));
+    optional binary jsonData (JSON);
+}
+```
+
+The annotation also works on `Binary`:
+
+```java EventData.java
+record EventData(String eventId, @ParquetJson Binary metadata) { }
+```
+
+It can annotate collection elements:
+
+```java
+record Batch(String id, List<@ParquetJson String> events) { }
+```
+
+<Warning>
+Carpet does not validate that the content is valid JSON. You must ensure the data is well-formed before writing.
+</Warning>
+
+</Accordion>
+
+<Accordion title="@ParquetBson">
+
+Annotate a `Binary` field with `@ParquetBson` to store it as Parquet `binary` with the `BSON` logical type.
+
+```java ProductEvent.java
+record ProductEvent(long id, Instant timestamp, @ParquetBson Binary bsonData) {}
+```
+
+```
+message ProductEvent {
+    required int64 id;
+    required int64 timestamp (TIMESTAMP(MILLIS,true));
+    optional binary bsonData (BSON);
+}
+```
+
+The annotation can also be applied to collection elements:
+
+```java
+record UserData(String userId, List<@ParquetBson Binary> documents) { }
+```
+
+<Warning>
+Carpet does not validate that the content is valid BSON. You must ensure the bytes represent a well-formed BSON document.
+</Warning>
+
+</Accordion>
+
+<Accordion title="@PrecisionScale">
+
+Use `@PrecisionScale(precision, scale)` to configure the Parquet `DECIMAL` logical type for a `BigDecimal` field on a per-field basis. Annotation settings take precedence over the global writer configuration.
+
+- **Precision** — total number of significant digits.
+- **Scale** — number of digits to the right of the decimal point.
+
+```java Product.java
+record Product(long id, @PrecisionScale(20, 4) BigDecimal price) {}
+```
+
+```
+message Product {
+  required int64 id;
+  optional binary price (DECIMAL(20,4));
+}
+```
+
+When **writing**, Carpet adapts the `BigDecimal` value to the specified precision and scale. When **reading**, `@PrecisionScale` is ignored — data is read using the precision and scale stored in the file.
+
+<Note>
+If no precision/scale is configured anywhere (neither via `@PrecisionScale` nor via the writer builder), Carpet throws an exception when it encounters a `BigDecimal` field.
+</Note>
+
+</Accordion>
+
+<Accordion title="@Rounding">
+
+Use `@Rounding` to specify the `java.math.RoundingMode` used when a `BigDecimal` value must be rescaled to fit the configured scale.
+
+```java Product.java
+record Product(
+    long id,
+    @PrecisionScale(20, 4) @Rounding(RoundingMode.HALF_UP) BigDecimal price) {
+}
+```
+
+This annotation does not change the Parquet schema. It only affects how values are rounded during writing.
+
+If scale adjustment is needed but no rounding mode is configured, Carpet uses `RoundingMode.UNNECESSARY` by default, which throws an `ArithmeticException` if rounding would be required. This default is intentional — it surfaces data integrity problems rather than silently truncating values.
+
+`@PrecisionScale` and `@Rounding` are independent and can be used together or separately. Use `@PrecisionScale` alone to set target precision/scale (fails if rescaling is needed without a rounding mode). Use `@Rounding` alone to apply rounding against the global precision/scale config. Use both together for full per-field control.
+
+</Accordion>
+
+<Accordion title="@ParquetGeometry">
+
+Use `@ParquetGeometry` to mark a field as planar geometry data. The field must be a JTS `Geometry` or a `Binary` containing WKB-encoded geometry.
+
+**With JTS Geometry** — Carpet serializes to WKB automatically:
+
+```java Location.java
+record Location(String name, @ParquetGeometry Geometry geom) { }
+```
+
+```
+message Location {
+  optional binary name (STRING);
+  optional binary geom (GEOMETRY);
+}
+```
+
+**With Binary (WKB)**:
+
+```java LocationBinary.java
+record LocationBinary(String name, @ParquetGeometry Binary geom) { }
+```
+
+**With a coordinate reference system (CRS)**:
+
+```java LocationWithCRS.java
+record LocationWithCRS(String name, @ParquetGeometry("EPSG:3857") Geometry geom) { }
+```
+
+The CRS string is written into the Parquet file's schema metadata so downstream readers know how to interpret the coordinates.
+
+</Accordion>
+
+<Accordion title="@ParquetGeography">
+
+Use `@ParquetGeography` for spherical coordinate systems (latitude/longitude). The field must be a JTS `Geometry` or `Binary` in WKB format.
+
+**Basic usage**:
+
+```java WorldLocation.java
+record WorldLocation(String name, @ParquetGeography Geometry location) { }
+```
+
+```
+message WorldLocation {
+  optional binary name (STRING);
+  optional binary location (GEOGRAPHY);
+}
+```
+
+**With CRS and edge algorithm**:
+
+```java PreciseLocation.java
+record PreciseLocation(
+    String name,
+    @ParquetGeography(crs = "EPSG:4326", algorithm = EdgeAlgorithm.VINCENTY) Geometry location
+) { }
+```
+
+**Supported `EdgeAlgorithm` values**:
+
+| Algorithm | Accuracy | Performance | Use case |
+|---|---|---|---|
+| `SPHERICAL` | Moderate | Fast | General purpose, assumes perfect sphere |
+| `VINCENTY` | High | Moderate | Geodesic calculations on ellipsoid |
+| `THOMAS` | High | Good | Balanced; optimized Vincenty variant |
+| `ANDOYER` | Moderate | Fast | Short distances |
+| `KARNEY` | Highest | Slow | Maximum precision required |
+| `NULL` | — | — | Use system default |
+
+**Common CRS identifiers**:
+
+| CRS | Description |
+|---|---|
+| `"EPSG:4326"` | WGS 84 — most common for GPS coordinates |
+| `"EPSG:3857"` | Web Mercator — used in web mapping |
+| `"OGC:CRS84"` | WGS 84 in longitude/latitude order |
+| `""` (empty) | Use default CRS |
+
+**Collection support**:
+
+```java MultiLocationRecord.java
+record MultiLocationRecord(
+    String name,
+    List<@ParquetGeography Geometry> locations,
+    Map<String, @ParquetGeometry Binary> regions
+) { }
+```
+
+</Accordion>
+
+</AccordionGroup>

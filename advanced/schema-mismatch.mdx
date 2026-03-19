@@ -1,0 +1,158 @@
+---
+title: "Schema Mismatch"
+description: "Configure how Carpet handles mismatches between the Parquet file schema and your Java record when reading, including null handling, missing columns, and type narrowing."
+---
+
+When you read a Parquet file, Carpet compares the file's schema against the fields of your target record. A perfect match is not always required — Carpet provides configuration flags that control exactly what happens when they diverge.
+
+## Nullable column mapped to a primitive field
+
+A file column may be marked `optional` (nullable) while the corresponding record field is a Java primitive, which cannot hold null. By default, Carpet silently maps null values to the Java primitive default (`0`, `0.0`, or `false`).
+
+**File schema:**
+
+```
+message MyRecord {
+  required binary id (STRING);
+  required binary name (STRING);
+  optional int32 age;
+}
+```
+
+**Record:**
+
+```java MyRecord.java
+record MyRecord(String id, String name, int age) { }
+```
+
+This is valid by default. If `age` is null in the file, it is read as `0`.
+
+<AccordionGroup>
+  <Accordion title="withFailOnNullForPrimitives">
+
+To make Carpet throw an exception when a null value from an `optional` column would be assigned to a primitive field, enable `FailOnNullForPrimitives`:
+
+```java
+List<MyRecord> data = new CarpetReader<>(file, MyRecord.class)
+    .withFailOnNullForPrimitives(true)
+    .toList();
+```
+
+| Setting | Behavior |
+|---|---|
+| `false` (default) | Null values are replaced with the Java primitive default (`0`, `0.0`, `false`) |
+| `true` | Throws an exception if any null value is read into a primitive field |
+
+  </Accordion>
+
+  <Accordion title="withFailOnMissingColumn">
+
+By default, Carpet throws an exception if a record field has no corresponding column in the file. This is a safety check that catches schema drift early.
+
+**File schema:**
+
+```
+message MyRecord {
+  required binary id (STRING);
+  required binary name (STRING);
+}
+```
+
+**Record** (has an extra `age` field):
+
+```java MyRecord.java
+record MyRecord(String id, String name, int age) { }
+```
+
+This would throw by default because `age` is missing from the file. To disable the check:
+
+```java
+List<MyRecord> data = new CarpetReader<>(file, MyRecord.class)
+    .withFailOnMissingColumn(false)
+    .toList();
+```
+
+With `withFailOnMissingColumn(false)`, missing columns are filled with `null` for object types or the primitive default for primitive types.
+
+| Setting | Behavior |
+|---|---|
+| `true` (default) | Throws an exception if a record field has no matching column in the file |
+| `false` | Missing fields are silently populated with `null` or primitive defaults |
+
+<Note>
+Columns that exist in the file but are absent from the record are silently ignored — this is a normal [projection](/advanced/projections), not a mismatch.
+</Note>
+
+  </Accordion>
+
+  <Accordion title="withFailNarrowingPrimitiveConversion">
+
+By default, Carpet performs narrowing numeric conversions when the column type and field type differ in size. The conversion follows Java's [Narrowing Primitive Conversion](https://docs.oracle.com/javase/specs/jls/se10/html/jls-5.html) rules.
+
+**File schema:**
+
+```
+message MyRecord {
+  required int64 id;
+  required double value;
+}
+```
+
+**Record** (narrower types):
+
+```java MyRecord.java
+record MyRecord(int id, float value) { }
+```
+
+This is accepted by default. `int64` is cast to `int`, and `double` is cast to `float`. The following conversions are permitted:
+
+- Integer types: `byte` ↔ `short` ↔ `int` ↔ `long`
+- Decimal types: `float` ↔ `double`
+
+To prevent silent data loss from narrowing, enable the flag:
+
+```java
+List<MyRecord> data = new CarpetReader<>(file, MyRecord.class)
+    .withFailNarrowingPrimitiveConversion(true)
+    .toList();
+```
+
+| Setting | Behavior |
+|---|---|
+| `false` (default) | Narrowing numeric conversions are performed silently |
+| `true` | Throws an exception if a narrowing conversion would occur |
+
+  </Accordion>
+
+  <Accordion title="withFieldMatchingStrategy">
+
+If the file was written with column names that differ from your record field names (for example, `user_name` in the file vs. `userName` in the record), configure a field matching strategy to handle the translation:
+
+```java
+var reader = new CarpetReader<>(file, MyRecord.class)
+    .withFieldMatchingStrategy(FieldMatchingStrategy.BEST_EFFORT);
+```
+
+| Strategy | Behavior |
+|---|---|
+| `FIELD_NAME` (default) | Exact name match required |
+| `SNAKE_CASE` | Matches column name to the snake_case version of the field name |
+| `BEST_EFFORT` | Tries exact match first; falls back to snake_case |
+
+See [Column Mapping](/advanced/column-mapping) for full details.
+
+  </Accordion>
+</AccordionGroup>
+
+## Combining flags
+
+All flags can be used together:
+
+```java
+List<MyRecord> data = new CarpetReader<>(file, MyRecord.class)
+    .withFailOnNullForPrimitives(true)
+    .withFailOnMissingColumn(false)
+    .withFailNarrowingPrimitiveConversion(true)
+    .withFieldMatchingStrategy(FieldMatchingStrategy.BEST_EFFORT)
+    .toList();
+```

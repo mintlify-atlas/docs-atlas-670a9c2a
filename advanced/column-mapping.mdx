@@ -1,0 +1,83 @@
+---
+title: "Column Name Mapping"
+description: "Map Java field names to Parquet column names using @Alias annotations and naming strategy configuration for both reading and writing."
+---
+
+Carpet uses reflection to discover the schema of your records. Java identifiers follow camelCase conventions, while Parquet column names can use any format. Carpet provides two mechanisms to bridge the gap: explicit `@Alias` annotations and automatic naming strategy configuration.
+
+## `@Alias` annotation
+
+The `@Alias` annotation maps a single record component to a Parquet column with a different name. It accepts any string, including characters that are not valid Java identifiers:
+
+```java MyRecord.java
+record MyRecord(long id, String name, @Alias("$name.id") String nameId) { }
+```
+
+The `nameId` field will be written to and read from a column named `$name.id` in the Parquet file.
+
+<Note>
+`@Alias` takes precedence over any naming strategy configured on the reader or writer. It applies during both reading and writing.
+</Note>
+
+## Naming strategies
+
+For systematic renaming (for example, converting all fields to snake_case), configure a naming strategy on the writer or reader instead of annotating every field individually.
+
+<Tabs>
+  <Tab title="Writing">
+
+Configure `columnNamingStrategy` on `CarpetWriter.Builder` to control how Java field names are translated to Parquet column names:
+
+```java Writing.java
+record MyRecord(long userCode, String userName) { }
+
+List<MyRecord> data = calculateDataToPersist();
+try (var writer = new CarpetWriter.Builder<>(outputStream, MyRecord.class)
+    .withColumnNamingStrategy(ColumnNamingStrategy.SNAKE_CASE)
+    .build()) {
+  writer.write(data);
+}
+```
+
+This produces a file with snake_case column names:
+
+```
+message MyRecord {
+  required int64 user_code;
+  optional binary user_name (STRING);
+}
+```
+
+Currently, `SNAKE_CASE` is the only available column naming strategy for writing.
+
+  </Tab>
+  <Tab title="Reading">
+
+Configure `fieldMatchingStrategy` on `CarpetReader` to control how Parquet column names are matched to Java field names when reading:
+
+```java Reading.java
+var reader = new CarpetReader<>(input, SomeEntity.class)
+    .withFieldMatchingStrategy(FieldMatchingStrategy.SNAKE_CASE);
+List<SomeEntity> list = reader.toList();
+```
+
+Available strategies:
+
+| Strategy | Behavior |
+|---|---|
+| `FIELD_NAME` | Exact match between column name and field name (default) |
+| `SNAKE_CASE` | Match column name to the snake_case version of the field name |
+| `BEST_EFFORT` | Try exact match first; fall back to snake_case if no match found |
+
+  </Tab>
+</Tabs>
+
+## Precedence
+
+When both `@Alias` and a naming strategy are configured, `@Alias` always wins for the annotated field. Unnamed fields are still subject to the configured strategy.
+
+```java MixedRecord.java
+// userCode → user_code via SNAKE_CASE strategy
+// nameId   → $name.id via @Alias (strategy is ignored for this field)
+record MixedRecord(long userCode, @Alias("$name.id") String nameId) { }
+```
