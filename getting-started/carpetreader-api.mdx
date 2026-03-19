@@ -81,13 +81,13 @@ for (MyRecord record : reader) {
 Returns a `CloseableIterator<T>` for explicit iteration control.
 
 ```java CarpetReader.java
-@Override
+// Returns CloseableIterator<T> which extends both Iterator<T> and Closeable
 public CloseableIterator<T> iterator()
 ```
 
 ```java Manual iterator
 var reader = new CarpetReader<>(new File("data.parquet"), MyRecord.class);
-Iterator<MyRecord> iterator = reader.iterator();
+CloseableIterator<MyRecord> iterator = reader.iterator();
 while (iterator.hasNext()) {
     MyRecord record = iterator.next();
     process(record);

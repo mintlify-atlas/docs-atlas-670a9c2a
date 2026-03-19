@@ -1,6 +1,6 @@
 ---
 title: "Column Name Mapping"
-description: "Map Java field names to Parquet column names using @Alias annotations and naming strategy configuration for both reading and writing."
+description: "Map Java field names to Parquet column names using @Alias, @FieldId annotations, and naming strategy configuration for both reading and writing."
 ---
 
 Carpet uses reflection to discover the schema of your records. Java identifiers follow camelCase conventions, while Parquet column names can use any format. Carpet provides two mechanisms to bridge the gap: explicit `@Alias` annotations and automatic naming strategy configuration.
@@ -81,3 +81,43 @@ When both `@Alias` and a naming strategy are configured, `@Alias` always wins fo
 // nameId   → $name.id via @Alias (strategy is ignored for this field)
 record MixedRecord(long userCode, @Alias("$name.id") String nameId) { }
 ```
+
+## `@FieldId` annotation
+
+The `@FieldId` annotation assigns a numeric Parquet field ID to a record component. Field IDs are part of the Parquet schema metadata and are critical for schema evolution — they let ID-aware readers resolve columns by ID even when column names or ordering change.
+
+```java SomeRecord.java
+record SomeRecord(
+    @FieldId(1) String uuid,
+    @FieldId(2) int statusCode,
+    @FieldId(3) long durationMillis,
+    @FieldId(4) String error
+) {}
+```
+
+For nested records, field IDs must be unique within each record scope but can be reused across different scopes:
+
+```java NestedRecord.java
+record Address(
+    @FieldId(100) String street,
+    @FieldId(101) String city
+) {}
+
+record Person(
+    @FieldId(1) String name,
+    @FieldId(2) Address address
+) {}
+```
+
+<Warning>
+Field IDs must be positive integers and unique within the same record scope (sibling fields). Duplicate field IDs within the same record will throw a `RecordTypeConversionException` during schema creation.
+</Warning>
+
+<Note>
+Field IDs are for writing only — Carpet does not use them for column matching when reading. For reading-side schema evolution, use `withFailOnMissingColumn(false)` and `withFieldMatchingStrategy`.
+</Note>
+
+**Guidelines for field IDs:**
+- Assign IDs once and never change them — changing an ID breaks compatibility with files written using the old ID
+- Never reuse an ID from a deleted field — this causes misinterpretation by ID-aware readers
+- Field IDs only apply to record component fields; internal Parquet structures (list elements, map key/value containers) do not receive field IDs from annotations

@@ -28,16 +28,24 @@ try (var writer = new CarpetWriter<>(new FileOutputStream(file), MyRecord.class)
   </Tab>
   <Tab title="FileSystemOutputFile (Carpet)">
 
-Use Carpet's `FileSystemOutputFile` when you need an `OutputFile` reference, for example when integrating with APIs that expect it:
+Use Carpet's `FileSystemOutputFile` when you need an `OutputFile` reference, for example when integrating with APIs that expect it. Accepts both `java.io.File` and `java.nio.file.Path`:
 
 ```java WriteFileSystem.java
-import com.jerolba.carpet.fileystem.FileSystemOutputFile;
+import com.jerolba.carpet.io.FileSystemOutputFile;
 
+// From File
 OutputFile outputFile = new FileSystemOutputFile(new File("output.parquet"));
+// From Path
+OutputFile outputFile2 = new FileSystemOutputFile(Path.of("output.parquet"));
+
 try (var writer = new CarpetWriter<>(outputFile, MyRecord.class)) {
     writer.write(data);
 }
 ```
+
+<Note>
+`FileSystemOutputFile.create()` throws if the file already exists. Use `CarpetWriter.Builder` with `withWriteMode(Mode.OVERWRITE)` (the default) which calls `createOrOverwrite()` internally, or pass an `OutputStream` for simpler overwrite semantics.
+</Note>
 
   </Tab>
   <Tab title="LocalOutputFile (parquet-java)">
@@ -70,12 +78,16 @@ List<MyRecord> data = new CarpetReader<>(new File("input.parquet"), MyRecord.cla
   </Tab>
   <Tab title="FileSystemInputFile (Carpet)">
 
-Use Carpet's `FileSystemInputFile` when an `InputFile` reference is required:
+Use Carpet's `FileSystemInputFile` when an `InputFile` reference is required. Accepts both `java.io.File` and `java.nio.file.Path`:
 
 ```java ReadFileSystem.java
-import com.jerolba.carpet.fileystem.FileSystemInputFile;
+import com.jerolba.carpet.io.FileSystemInputFile;
 
+// From File
 InputFile inputFile = new FileSystemInputFile(new File("input.parquet"));
+// From Path
+InputFile inputFile2 = new FileSystemInputFile(Path.of("input.parquet"));
+
 List<MyRecord> data = new CarpetReader<>(inputFile, MyRecord.class).toList();
 ```
 

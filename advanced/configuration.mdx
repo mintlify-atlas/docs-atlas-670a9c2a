@@ -80,6 +80,28 @@ try (var writer = new CarpetWriter.Builder<>(outputStream, MyRecord.class)
 
 This setting affects only the files you write. Reading automatically adapts to whatever unit is stored in the file.
 
+### Collection level structure
+
+Parquet's [LIST logical type](https://github.com/apache/parquet-format/blob/master/LogicalTypes.md#lists) can be encoded with 1, 2, or 3 levels of nesting. Carpet defaults to the standard 3-level structure. Use `withLevelStructure` if you need to produce files compatible with older readers that expect a different encoding:
+
+```java LevelStructure.java
+try (var writer = new CarpetWriter.Builder<>(outputFile, MyRecord.class)
+        .withLevelStructure(AnnotatedLevels.TWO)
+        .build()) {
+    writer.write(data);
+}
+```
+
+| Value | Description |
+|---|---|
+| `AnnotatedLevels.ONE` | 1-level list encoding (repeated field, no wrapper group) |
+| `AnnotatedLevels.TWO` | 2-level list encoding |
+| `AnnotatedLevels.THREE` | 3-level list encoding (default, standard Parquet spec) |
+
+<Note>
+Unless you need compatibility with a legacy reader, keep the default `THREE` level structure.
+</Note>
+
 ### Write Model
 
 Attach a programmatic Write Model to override automatic field mapping:

@@ -57,6 +57,31 @@ try (ParquetReader<MyRecord> reader = CarpetParquetReader.builder(inputFile, MyR
   </Card>
 </CardGroup>
 
+## Record code generator
+
+`CarpetRecordGenerator` is an experimental utility that inspects a Parquet file's schema and generates the Java record source code needed to read it. This is useful when you receive a Parquet file from an external system and need to quickly create the corresponding Java types.
+
+```java RecordGenerator.java
+// From a file path
+List<String> recordCode = CarpetRecordGenerator.generateCode("my_file.parquet");
+
+// From a File
+List<String> recordCode = CarpetRecordGenerator.generateCode(new File("my_file.parquet"));
+
+// From an InputFile
+InputFile inputFile = new FileSystemInputFile(new File("my_file.parquet"));
+List<String> recordCode = CarpetRecordGenerator.generateCode(inputFile);
+
+// Print the generated records
+recordCode.forEach(System.out::println);
+```
+
+Each element in the returned list is a string containing the source code for one Java record. Nested types produce multiple records — one per nested group.
+
+<Warning>
+`CarpetRecordGenerator` is marked **experimental**. Its API and behavior may change in future versions.
+</Warning>
+
 ## Carpet-specific configuration
 
 Both builders accept Carpet-specific settings via the same methods as `CarpetWriter.Builder` and `CarpetReader`:

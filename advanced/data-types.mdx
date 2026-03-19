@@ -91,6 +91,32 @@ message ProductEvent {
 
 Carpet does not validate the content — you are responsible for ensuring the data is well-formed JSON or BSON. Full annotation documentation is in [Java Type Annotations](/advanced/java-type-annotations).
 
+## Variant type
+
+Carpet supports the Parquet `VARIANT` logical type via `org.apache.parquet.variant.Variant`. This type stores semi-structured data (similar to JSON) in a typed binary encoding defined by the Parquet spec.
+
+Use `Variant` in a record field to store variable-schema data alongside fixed-schema columns:
+
+```java EventRecord.java
+import org.apache.parquet.variant.Variant;
+
+record EventRecord(String id, Variant payload) {}
+```
+
+When using a [Write Model](/advanced/write-model), use the `VARIANT` constant from `FieldTypes`:
+
+```java VariantModel.java
+import static com.jerolba.carpet.model.FieldTypes.*;
+
+var writeModel = writeRecordModel(EventRecord.class)
+    .withField("id",      STRING,  EventRecord::id)
+    .withField("payload", VARIANT, EventRecord::payload);
+```
+
+<Note>
+`Variant` support requires a version of `parquet-java` that includes the VARIANT logical type. This is a newer Parquet feature — verify your `parquet-java` dependency version supports it before using.
+</Note>
+
 ## Geospatial types
 
 Carpet supports geospatial data via JTS (Java Topology Suite) `Geometry` objects or raw `Binary` in Well-Known Binary (WKB) format.
